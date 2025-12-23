@@ -1,0 +1,60 @@
+# Diretórios de build
+bin/
+dist/
+build/
+
+# Dependências (serão baixadas no container)
+vendor/
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Arquivos de teste e cobertura
+*.test
+coverage.out
+coverage.html
+
+# Documentação (exceto OpenAPI)
+*.md
+!README.md
+docs/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.docker/
+
+# Arquivos de ambiente (sensíveis)
+.env
+.env.*
+*.env
+
+# Logs
+*.log
+logs/
+
+# Arquivos temporários
+tmp/
+temp/
+*.tmp
+
+# Cache
+.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Scripts de desenvolvimento
+scripts/
+
+# Makefile (não necessário na imagem)
+Makefile

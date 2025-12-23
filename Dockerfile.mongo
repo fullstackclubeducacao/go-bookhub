@@ -1,0 +1,96 @@
+# ==============================================================================
+# Dockerfile for MongoDB backend - BookHub API
+# Uses multi-stage build to create a minimal and secure final image
+# ==============================================================================
+
+# ==============================================================================
+# STAGE 1: Builder
+# This stage compiles the Go code and generates the application binary
+# ==============================================================================
+FROM golang:1.25-alpine AS builder
+
+# Install CA certificates for HTTPS and git for dependencies
+# tzdata is needed for timezone support
+RUN apk add --no-cache ca-certificates git tzdata
+
+# Set the working directory inside the container
+WORKDIR /build
+
+# Copy dependency files first to leverage Docker cache
+# If go.mod and go.sum don't change, dependencies won't be downloaded again
+COPY go.mod go.sum ./
+
+# Download Go dependencies
+# Docker cache will keep these dependencies between builds
+RUN go mod download
+
+# Copy the rest of the source code
+# This is done after downloading dependencies to optimize cache
+COPY . .
+
+# Build the binary with production optimizations:
+# - CGO_DISABLED=0: Disables CGO to create a static binary
+# - GOOS=linux: Compiles for Linux (compatible with Alpine container)
+# - -ldflags="-s -w": Removes debug symbols and symbol table (reduces size)
+# - -trimpath: Removes absolute paths from binary (improves reproducibility)
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -trimpath \
+    -o /build/bookhub-mongo \
+    ./cmd/api-mongo/main.go
+
+# ==============================================================================
+# STAGE 2: Final
+# This stage creates the minimal final image with only what's needed for execution
+# ==============================================================================
+FROM alpine:3.19
+
+# Install only the essentials for the application to run:
+# - ca-certificates: Certificates for HTTPS connections
+# - tzdata: Timezone data for proper date handling
+RUN apk add --no-cache ca-certificates tzdata
+
+# Create a non-root user to run the application
+# This follows container security best practices
+RUN addgroup -g 1000 -S bookhub && \
+    adduser -u 1000 -S bookhub -G bookhub
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the compiled binary from the build stage
+COPY --from=builder /build/bookhub-mongo .
+
+# Copy required files for the application:
+# - OpenAPI: API specification (needed to serve swagger)
+COPY --from=builder /build/api/openapi ./api/openapi
+
+# Create directory for Swagger UI
+# Will be populated by make swagger-ui command or mounted via volume
+RUN mkdir -p ./api/swagger-ui
+
+# Set correct permissions for files
+# The bookhub user only needs read and execute permissions
+RUN chown -R bookhub:bookhub /app
+
+# Switch to non-root user
+# From here on, all commands will be executed as 'bookhub'
+USER bookhub
+
+# Expose the port the application uses
+# This is just documentation, actual mapping is done with -p in docker run
+EXPOSE 8080
+
+# Set default environment variables
+# These can be overridden in docker run or docker-compose
+ENV SERVER_PORT=8080 \
+    GIN_MODE=release
+
+# Health check command
+# Verifies that the application is responding correctly
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Command to run the application
+# Uses exec form so signals are passed correctly to the process
+ENTRYPOINT ["./bookhub-mongo"]
